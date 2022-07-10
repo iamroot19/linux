@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Remote Launch",
+            "type": "cppdbg",
+            "request": "launch",
+            "miDebuggerPath": "/usr/bin/gdb-multiarch",
+            "miDebuggerArgs": "--cd=${workspaceFolder} --nx",
+            "miDebuggerServerAddress": "127.0.0.1:1234",
+            "program": "vmlinux",
+            "stopAtEntry": false,
+            "stopAtConnect": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "text": "set pagination off",
+                    "text": "set print asm-demangle on",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "qemuStartKernel"
+        }
+    ]
+}

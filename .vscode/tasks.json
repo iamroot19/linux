@@ -1,0 +1,77 @@
+{
+    "version": "2.0.0",
+    "runner": "terminal",
+    "type": "shell",
+    "echoCommand": true,
+    "presentation" : { "reveal": "always" },
+    "tasks": [
+        {
+            "label": "build",
+            "command": "make",
+            "args": [
+                "CROSS_COMPILE=aarch64-linux-gnu-",
+                "ARCH=arm64"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "dependsOn": "defconfig",
+            "group": "build"
+        },
+        {
+            "label": "defconfig",
+            "command": "make",
+            "args": [
+                "CROSS_COMPILE=aarch64-linux-gnu-",
+                "ARCH=arm64",
+                "defconfig"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": "build"
+        },
+        {
+            "label": "qemuStartKernel",
+            "command": "sudo",
+            "args": [
+                "qemu-system-aarch64",
+                "-machine",
+                "virt",
+                "-smp",
+                "4",
+                "-m",
+                "1024",
+                "-cpu",
+                "cortex-a57",
+                "-nographic",
+                "-kernel",
+                "arch/arm64/boot/Image",
+                "-append",
+                "'root=/dev/vda rw rootwait mem=1024M loglevel=8 console=ttyAMA0'",
+                "-netdev",
+                "user,id=net0",
+                "-device",
+                "virtio-net-device,netdev=net0",
+                "-drive",
+                "if=none,id=disk,file=../core-image-minimal-qemuarm64-20220416133845.rootfs.ext4,format=raw",
+                "-device",
+                "virtio-blk-device,drive=disk",
+                "-gdb",
+                "tcp::1234",
+                "-S"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "isBackground": true,
+            "group": "none"
+        }
+    ]
+}
