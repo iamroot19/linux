@@ -27,7 +27,7 @@
             "args": [
                 "CROSS_COMPILE=aarch64-linux-gnu-",
                 "ARCH=arm64",
-                "defconfig"
+                "arm64_qemu_defconfig"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
