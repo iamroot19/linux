@@ -28,6 +28,10 @@ sudo qemu-system-aarch64 -M virt -smp 4 -m 1024 -cpu cortex-a57 -nographic \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 47주차
+- 2023.04.15 Zoom 온라인 (5명 참석)
+- 코드 : paging_init()->map_mem() ~ paging_init() 분석 완료
+
 ### 46주차 
 - 2023.04.08 Zoom 온라인 (6명 참석)
 - ARM 리눅스 커널 책 : 3.1.5 페이지 테이블 레지스터 설정 -> cpu_switch_mm(): mm스위칭하기 (157쪽) ~ 3.1.6 페이지 테이블 및 주소 변환 API (161쪽)
