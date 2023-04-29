@@ -11,7 +11,8 @@
 ```
 $ sudo apt install -y build-essential gcc-aarch64-linux-gnu g++-aarch64-linux-gnu git bison flex libssl-dev libncurses-dev  
 $ make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 arm64_qemu_defconfig
-$ make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64
+$ make CROSS_COMPILE=aarch64-linux-gnu- ARCH=arm64 -j $(nproc)
+$ ./scripts/clang-tools/gen_compile_commands.py
 $ sudo apt install -y qemu-system-arm
 ```
 -> [rootfs download](http://downloads.yoctoproject.org/releases/yocto/yocto-4.0/machines/qemu/qemuarm64/core-image-minimal-qemuarm64-20220416133845.rootfs.ext4)
