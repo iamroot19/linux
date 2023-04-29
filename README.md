@@ -28,11 +28,14 @@ sudo qemu-system-aarch64 -M virt -smp 4 -m 1024 -cpu cortex-a57 -nographic \
 ## \# History
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
-- 코드 : bootmem_init() ~ bootmem_init()->sparse_init() 분석 완료
+
+### 49주차
+- 2023.04.29 Zoom 온라인 (8명 참석)
+- 코드 : bootmem_init()->zone_sizes_init() ~ bootmem_init()->zone_sizes_init()->free_area_init()->find_zone_movable_pfns_for_nodes() 분석 중
 
 ### 48주차
 - 2023.04.22 Zoom 온라인 (7명 참석)
-- 코드 : paging_init()->map_mem() ~ paging_init() 분석 완료
+- 코드 : bootmem_init() ~ bootmem_init()->sparse_init() 분석 완료
 
 ### 47주차
 - 2023.04.15 Zoom 온라인 (5명 참석)
