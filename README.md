@@ -29,7 +29,7 @@ sudo qemu-system-aarch64 -M virt -smp 4 -m 1024 -cpu cortex-a57 -nographic \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
-### 50주차
+### 51주차
 - 2023.05.13 Zoom 온라인 (6명 참석)
 - 코드 : bootmem_init()->zone_sizes_init()->free_area_init()->setup_nr_node_ids() ~ bootmem_init()->zone_sizes_init()->free_area_init()-free_area_init_node()->free_area_init_core() 분석 중
 
