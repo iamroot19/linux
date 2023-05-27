@@ -17,9 +17,14 @@ $ sudo apt install -y qemu-system-arm
 ```
 -> [rootfs download](http://downloads.yoctoproject.org/releases/yocto/yocto-4.0/machines/qemu/qemuarm64/core-image-minimal-qemuarm64-20220416133845.rootfs.ext4)
 ```
-sudo qemu-system-aarch64 -M virt -smp 4 -m 1024 -cpu cortex-a57 -nographic \
+sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
+  -nographic -m 1024 \
+  -numa node,cpus=0,nodeid=0 \
+  -numa node,cpus=1,nodeid=1 \
+  -numa node,cpus=2,nodeid=2 \
+  -numa node,cpus=3,nodeid=3 \ 
   -kernel linux/arch/arm64/boot/Image \
-  -append 'root=/dev/vda rw rootwait mem=1024M loglevel=8 console=ttyAMA0' \
+  -append 'root=/dev/vda rw rootwait mem=1024M loglevel=8 console=ttyAMA0 nokaslr' \
   -netdev user,id=net0 \
   -device virtio-net-device,netdev=net0 \
   -drive if=none,id=disk,file=core-image-minimal-qemuarm64-20220416133845.rootfs.ext4,format=raw \
