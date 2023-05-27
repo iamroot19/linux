@@ -36,8 +36,7 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 ### 53주차
 - 2023.05.27 Zoom 온라인 (7명 참석)
-- 코드 : bootmem_init()->zone_sizes_init()->free_area_init()->memmap_init() ~ bootmem_init()->zone_sizes_init() 분석 완료
--        bootmem_init()->arch_numa_init() ~ bootmem_init()->arch_numa_init()->numa_init()->numa_register_nodes() 분석 완료
+- 코드 : bootmem_init()->zone_sizes_init()->free_area_init()->memmap_init() ~ bootmem_init()->zone_sizes_init() 분석 완료, bootmem_init()->arch_numa_init() ~ bootmem_init()->arch_numa_init()->numa_init()->numa_register_nodes() 분석 완료
 
 ### 52주차
 - 2023.05.20 Zoom 온라인 (6명 참석)
