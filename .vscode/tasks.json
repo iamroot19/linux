@@ -63,8 +63,7 @@
                 "if=none,id=disk,file=../core-image-minimal-qemuarm64-20220416133845.rootfs.ext4,format=raw",
                 "-device",
                 "virtio-blk-device,drive=disk",
-                "-gdb",
-                "tcp::1234",
+                "-s",
                 "-S"
             ],
             "options": {
