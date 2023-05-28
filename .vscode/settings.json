@@ -131,7 +131,7 @@
             "variable.global": {
                 "foreground": "#9932cc", // violet
                 "fontStyle": "italic"
-            }
+            },
             // clangd lsp
             "variable.globalScope": {
                 "foreground": "#9932cc", // violet
