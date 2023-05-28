@@ -1,0 +1,14 @@
+CompileFlags:
+  Add:
+    - "-enable-trivial-auto-var-init-zero-knowing-it-will-be-removed-from-clang"
+  Remove:
+    - "-mabi=lp64"
+    - "-fconserve-stack"
+    - "-fno-allow-store-data-races"
+
+InlayHints:
+  Enabled: No
+
+Diagnostics:
+  ClangTidy:
+    Remove: bugprone-sizeof-expression
