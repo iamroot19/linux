@@ -34,6 +34,11 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 54주차
+- 2023.06.03 Zoom 온라인 (7명 참석)
+- 코드 : bootmem_init()->arch_numa_init()->numa_init()->setup_node_to_cpumask_map() ~ bootmem_init()->arch_numa_init()->of_numa_init() 분석 완료
+- 책 : 4.4 버디 시스템 ~ 4.4.1 버디 시스템의 구조
+
 ### 53주차
 - 2023.05.27 Zoom 온라인 (7명 참석)
 - 코드 : bootmem_init()->zone_sizes_init()->free_area_init()->memmap_init() ~ bootmem_init()->zone_sizes_init() 분석 완료, bootmem_init()->arch_numa_init() ~ bootmem_init()->arch_numa_init()->numa_init()->numa_register_nodes() 분석 완료
