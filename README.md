@@ -34,6 +34,10 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 55주차
+- 2023.06.10 Zoom 온라인 (6명 참석)
+- 책 : 4.4.2 최초 버디 구성 과정
+
 ### 54주차
 - 2023.06.03 Zoom 온라인 (7명 참석)
 - 코드 : bootmem_init()->arch_numa_init()->numa_init()->setup_node_to_cpumask_map() ~ bootmem_init()->arch_numa_init()->of_numa_init() 분석 완료
