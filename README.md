@@ -34,6 +34,10 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 58주차
+- 2023.07.01 Zoom 온라인 (7명 참석)
+- 코드 : mem_init()->memblock_free_all()->free_unused_memmap() ~ mem_init()->memblock_free_all()->free_low_memory_core_early()->__free_memory_core()->__free_pages_memory()->memblock_free_pages()->__free_pages_core()->__free_pages_ok()->free_pages_prepare()
+
 ### 57주차
 - 2023.06.24 Zoom 온라인 (7명 참석)
 - 책 : 4.4.3 버디 시스템의 페이지 할당->move_freepages_block():페이지 블록의 속한 전체 페이지 이동하기 ~ 4.4.4 버디 시스템의 페이지 해제
