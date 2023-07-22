@@ -34,6 +34,14 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 60주차
+- 2023.07.22 Zoom 온라인 (5명 참석)
+- 코드 : __rmqueue()->__rmqueue_fallback() ~ __rmqueue(), __free_pages() ~ free_pages_prepare() 분석 중
+
+### 59주차
+- 2023.07.15 Zoom 온라인 (8명 참석)
+- 코드 : __rmqueue() ~ __rmqueue()->__rmqueue_cma_fallback()
+
 ### 58주차
 - 2023.07.01 Zoom 온라인 (7명 참석)
 - 코드 : mem_init()->memblock_free_all()->free_unused_memmap() ~ mem_init()->memblock_free_all()->free_low_memory_core_early()->__free_memory_core()->__free_pages_memory()->memblock_free_pages()->__free_pages_core()->__free_pages_ok()->free_pages_prepare()
