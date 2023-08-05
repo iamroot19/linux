@@ -34,6 +34,10 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 62주차
+- 2023.08.05 Zoom 온라인 (7명 참석)
+- 책 : 4.5 per-cpu 페이지 프레임 캐시(pcp) 읽음
+
 ### 61주차
 - 2023.07.29 Zoom 온라인 (7명 참석)
 - 코드 : __free_pages() 분석 완료
