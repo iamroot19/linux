@@ -897,7 +897,7 @@ int peak_usb_set_eeprom(struct net_device *netdev,
 	return 0;
 }
 
-int pcan_get_ts_info(struct net_device *dev, struct ethtool_ts_info *info)
+int pcan_get_ts_info(struct net_device *dev, struct kernel_ethtool_ts_info *info)
 {
 	info->so_timestamping =
 		SOF_TIMESTAMPING_TX_SOFTWARE |
@@ -1143,7 +1143,7 @@ static void __exit peak_usb_exit(void)
 	int err;
 
 	/* last chance do send any synchronous commands here */
-	err = driver_for_each_device(&peak_usb_driver.drvwrap.driver, NULL,
+	err = driver_for_each_device(&peak_usb_driver.driver, NULL,
 				     NULL, peak_usb_do_device_exit);
 	if (err)
 		pr_err("%s: failed to stop all can devices (err %d)\n",

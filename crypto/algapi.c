@@ -341,6 +341,7 @@ __crypto_register_alg(struct crypto_alg *alg, struct list_head *algs_to_put)
 		}
 
 		if (!strcmp(q->cra_driver_name, alg->cra_name) ||
+		    !strcmp(q->cra_driver_name, alg->cra_driver_name) ||
 		    !strcmp(q->cra_name, alg->cra_driver_name))
 			goto err;
 	}
@@ -1055,6 +1056,9 @@ EXPORT_SYMBOL_GPL(crypto_type_has_alg);
 
 static void __init crypto_start_tests(void)
 {
+	if (!IS_BUILTIN(CONFIG_CRYPTO_ALGAPI))
+		return;
+
 	if (IS_ENABLED(CONFIG_CRYPTO_MANAGER_DISABLE_TESTS))
 		return;
 

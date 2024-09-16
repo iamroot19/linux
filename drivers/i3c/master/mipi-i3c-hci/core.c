@@ -245,7 +245,14 @@ static int i3c_hci_send_ccc_cmd(struct i3c_master_controller *m,
 		if (ccc->rnw)
 			ccc->dests[i - prefixed].payload.len =
 				RESP_DATA_LENGTH(xfer[i].response);
-		if (RESP_STATUS(xfer[i].response) != RESP_SUCCESS) {
+		switch (RESP_STATUS(xfer[i].response)) {
+		case RESP_SUCCESS:
+			continue;
+		case RESP_ERR_ADDR_HEADER:
+		case RESP_ERR_NACK:
+			ccc->err = I3C_ERROR_M2;
+			fallthrough;
+		default:
 			ret = -EIO;
 			goto out;
 		}
@@ -267,6 +274,34 @@ static int i3c_hci_daa(struct i3c_master_controller *m)
 	DBG("");
 
 	return hci->cmd->perform_daa(hci);
+}
+
+static int i3c_hci_alloc_safe_xfer_buf(struct i3c_hci *hci,
+				       struct hci_xfer *xfer)
+{
+	if (hci->io != &mipi_i3c_hci_dma ||
+	    xfer->data == NULL || !is_vmalloc_addr(xfer->data))
+		return 0;
+
+	if (xfer->rnw)
+		xfer->bounce_buf = kzalloc(xfer->data_len, GFP_KERNEL);
+	else
+		xfer->bounce_buf = kmemdup(xfer->data,
+					   xfer->data_len, GFP_KERNEL);
+
+	return xfer->bounce_buf == NULL ? -ENOMEM : 0;
+}
+
+static void i3c_hci_free_safe_xfer_buf(struct i3c_hci *hci,
+				       struct hci_xfer *xfer)
+{
+	if (hci->io != &mipi_i3c_hci_dma || xfer->bounce_buf == NULL)
+		return;
+
+	if (xfer->rnw)
+		memcpy(xfer->data, xfer->bounce_buf, xfer->data_len);
+
+	kfree(xfer->bounce_buf);
 }
 
 static int i3c_hci_priv_xfers(struct i3c_dev_desc *dev,
@@ -302,6 +337,9 @@ static int i3c_hci_priv_xfers(struct i3c_dev_desc *dev,
 		}
 		hci->cmd->prep_i3c_xfer(hci, dev, &xfer[i]);
 		xfer[i].cmd_desc[0] |= CMD_0_ROC;
+		ret = i3c_hci_alloc_safe_xfer_buf(hci, &xfer[i]);
+		if (ret)
+			goto out;
 	}
 	last = i - 1;
 	xfer[last].cmd_desc[0] |= CMD_0_TOC;
@@ -325,6 +363,9 @@ static int i3c_hci_priv_xfers(struct i3c_dev_desc *dev,
 	}
 
 out:
+	for (i = 0; i < nxfers; i++)
+		i3c_hci_free_safe_xfer_buf(hci, &xfer[i]);
+
 	hci_free_xfer(xfer, nxfers);
 	return ret;
 }
@@ -350,6 +391,9 @@ static int i3c_hci_i2c_xfers(struct i2c_dev_desc *dev,
 		xfer[i].rnw = i2c_xfers[i].flags & I2C_M_RD;
 		hci->cmd->prep_i2c_xfer(hci, dev, &xfer[i]);
 		xfer[i].cmd_desc[0] |= CMD_0_ROC;
+		ret = i3c_hci_alloc_safe_xfer_buf(hci, &xfer[i]);
+		if (ret)
+			goto out;
 	}
 	last = i - 1;
 	xfer[last].cmd_desc[0] |= CMD_0_TOC;
@@ -371,6 +415,9 @@ static int i3c_hci_i2c_xfers(struct i2c_dev_desc *dev,
 	}
 
 out:
+	for (i = 0; i < nxfers; i++)
+		i3c_hci_free_safe_xfer_buf(hci, &xfer[i]);
+
 	hci_free_xfer(xfer, nxfers);
 	return ret;
 }
@@ -584,6 +631,7 @@ static irqreturn_t i3c_hci_irq_handler(int irq, void *dev_id)
 static int i3c_hci_init(struct i3c_hci *hci)
 {
 	u32 regval, offset;
+	bool size_in_dwords;
 	int ret;
 
 	/* Validate HCI hardware version */
@@ -607,11 +655,16 @@ static int i3c_hci_init(struct i3c_hci *hci)
 	hci->caps = reg_read(HC_CAPABILITIES);
 	DBG("caps = %#x", hci->caps);
 
+	size_in_dwords = hci->version_major < 1 ||
+			 (hci->version_major == 1 && hci->version_minor < 1);
+
 	regval = reg_read(DAT_SECTION);
 	offset = FIELD_GET(DAT_TABLE_OFFSET, regval);
 	hci->DAT_regs = offset ? hci->base_regs + offset : NULL;
 	hci->DAT_entries = FIELD_GET(DAT_TABLE_SIZE, regval);
 	hci->DAT_entry_size = FIELD_GET(DAT_ENTRY_SIZE, regval) ? 0 : 8;
+	if (size_in_dwords)
+		hci->DAT_entries = 4 * hci->DAT_entries / hci->DAT_entry_size;
 	dev_info(&hci->master.dev, "DAT: %u %u-bytes entries at offset %#x\n",
 		 hci->DAT_entries, hci->DAT_entry_size, offset);
 
@@ -620,6 +673,8 @@ static int i3c_hci_init(struct i3c_hci *hci)
 	hci->DCT_regs = offset ? hci->base_regs + offset : NULL;
 	hci->DCT_entries = FIELD_GET(DCT_TABLE_SIZE, regval);
 	hci->DCT_entry_size = FIELD_GET(DCT_ENTRY_SIZE, regval) ? 0 : 16;
+	if (size_in_dwords)
+		hci->DCT_entries = 4 * hci->DCT_entries / hci->DCT_entry_size;
 	dev_info(&hci->master.dev, "DCT: %u %u-bytes entries at offset %#x\n",
 		 hci->DCT_entries, hci->DCT_entry_size, offset);
 

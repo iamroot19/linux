@@ -340,8 +340,8 @@ int vme_slave_set(struct vme_resource *resource, int enabled,
 	image = list_entry(resource->entry, struct vme_slave_resource, list);
 
 	if (!bridge->slave_set) {
-		dev_err(bridge->parent, "Function not supported\n");
-		return -ENOSYS;
+		dev_err(bridge->parent, "%s not supported\n", __func__);
+		return -EINVAL;
 	}
 
 	if (!(((image->address_attr & aspace) == aspace) &&
@@ -1931,7 +1931,7 @@ EXPORT_SYMBOL(vme_unregister_driver);
 
 /* - Bus Registration ------------------------------------------------------ */
 
-static int vme_bus_match(struct device *dev, struct device_driver *drv)
+static int vme_bus_match(struct device *dev, const struct device_driver *drv)
 {
 	struct vme_driver *vme_drv;
 
@@ -1970,7 +1970,7 @@ static void vme_bus_remove(struct device *dev)
 		driver->remove(vdev);
 }
 
-struct bus_type vme_bus_type = {
+const struct bus_type vme_bus_type = {
 	.name = "vme",
 	.match = vme_bus_match,
 	.probe = vme_bus_probe,

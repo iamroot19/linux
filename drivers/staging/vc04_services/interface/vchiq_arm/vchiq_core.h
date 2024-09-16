@@ -6,10 +6,12 @@
 
 #include <linux/mutex.h>
 #include <linux/completion.h>
+#include <linux/debugfs.h>
 #include <linux/dev_printk.h>
 #include <linux/kthread.h>
 #include <linux/kref.h>
 #include <linux/rcupdate.h>
+#include <linux/spinlock_types.h>
 #include <linux/wait.h>
 
 #include "../../include/linux/raspberrypi/vchiq.h"
@@ -30,44 +32,6 @@
 
 #define VCHIQ_SLOT_SIZE     4096
 #define VCHIQ_MAX_MSG_SIZE  (VCHIQ_SLOT_SIZE - sizeof(struct vchiq_header))
-
-enum vchiq_log_category {
-	VCHIQ_ARM,
-	VCHIQ_CORE,
-	VCHIQ_CORE_MSG,
-	VCHIQ_SYNC,
-	VCHIQ_SUSPEND,
-};
-
-static inline const char *log_category_str(enum vchiq_log_category c)
-{
-	static const char * const strings[] = {
-		"vchiq_arm",
-		"vchiq_core",
-		"vchiq_core_msg",
-		"vchiq_sync",
-		"vchiq_suspend",
-	};
-
-	return strings[c];
-};
-
-#ifndef vchiq_log_error
-#define vchiq_log_error(dev, cat, fmt, ...) \
-	do { dev_dbg(dev, "%s error: " fmt, log_category_str(cat), ##__VA_ARGS__); } while (0)
-#endif
-#ifndef vchiq_log_warning
-#define vchiq_log_warning(dev, cat, fmt, ...) \
-	do { dev_dbg(dev, "%s warning: " fmt, log_category_str(cat), ##__VA_ARGS__); } while (0)
-#endif
-#ifndef vchiq_log_debug
-#define vchiq_log_debug(dev, cat, fmt, ...) \
-	do { dev_dbg(dev, "%s debug: " fmt, log_category_str(cat), ##__VA_ARGS__); } while (0)
-#endif
-#ifndef vchiq_log_trace
-#define vchiq_log_trace(dev, cat, fmt, ...) \
-	do { dev_dbg(dev, "%s trace: " fmt, log_category_str(cat), ##__VA_ARGS__); } while (0)
-#endif
 
 #define VCHIQ_SLOT_MASK        (VCHIQ_SLOT_SIZE - 1)
 #define VCHIQ_SLOT_QUEUE_MASK  (VCHIQ_MAX_SLOTS_PER_SIDE - 1)
@@ -383,7 +347,11 @@ struct vchiq_state {
 
 	struct mutex sync_mutex;
 
-	struct mutex bulk_transfer_mutex;
+	spinlock_t msg_queue_spinlock;
+
+	spinlock_t bulk_waiter_spinlock;
+
+	spinlock_t quota_spinlock;
 
 	/*
 	 * Indicates the byte position within the stream from where the next
@@ -423,8 +391,6 @@ struct vchiq_state {
 	/* Signalled when a free slot becomes available. */
 	struct completion slot_available_event;
 
-	struct completion slot_remove_event;
-
 	/* Signalled when a free data slot becomes available. */
 	struct completion data_quota_event;
 
@@ -442,6 +408,11 @@ struct vchiq_state {
 
 	struct opaque_platform_state *platform_state;
 };
+
+static inline bool vchiq_remote_initialised(const struct vchiq_state *state)
+{
+	return state->remote && state->remote->initialised;
+}
 
 struct bulk_waiter {
 	struct vchiq_bulk *bulk;
@@ -504,17 +475,8 @@ vchiq_bulk_transfer(struct vchiq_instance *instance, unsigned int handle, void *
 		    void __user *uoffset, int size, void *userdata, enum vchiq_bulk_mode mode,
 		    enum vchiq_bulk_dir dir);
 
-extern int
-vchiq_dump_state(void *dump_context, struct vchiq_state *state);
-
-extern int
-vchiq_dump_service_state(void *dump_context, struct vchiq_service *service);
-
 extern void
-vchiq_loud_error_header(void);
-
-extern void
-vchiq_loud_error_footer(void);
+vchiq_dump_state(struct seq_file *f, struct vchiq_state *state);
 
 extern void
 request_poll(struct vchiq_state *state, struct vchiq_service *service,
@@ -562,15 +524,13 @@ int vchiq_prepare_bulk_data(struct vchiq_instance *instance, struct vchiq_bulk *
 
 void vchiq_complete_bulk(struct vchiq_instance *instance, struct vchiq_bulk *bulk);
 
-void remote_event_signal(struct remote_event *event);
+void remote_event_signal(struct vchiq_state *state, struct remote_event *event);
 
-int vchiq_dump(void *dump_context, const char *str, int len);
+void vchiq_dump_platform_state(struct seq_file *f);
 
-int vchiq_dump_platform_state(void *dump_context);
+void vchiq_dump_platform_instances(struct vchiq_state *state, struct seq_file *f);
 
-int vchiq_dump_platform_instances(void *dump_context);
-
-int vchiq_dump_platform_service_state(void *dump_context, struct vchiq_service *service);
+void vchiq_dump_platform_service_state(struct seq_file *f, struct vchiq_service *service);
 
 int vchiq_use_service_internal(struct vchiq_service *service);
 
@@ -583,8 +543,6 @@ void vchiq_on_remote_release(struct vchiq_state *state);
 int vchiq_platform_init_state(struct vchiq_state *state);
 
 int vchiq_check_service(struct vchiq_service *service);
-
-void vchiq_on_remote_use_active(struct vchiq_state *state);
 
 int vchiq_send_remote_use(struct vchiq_state *state);
 

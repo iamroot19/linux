@@ -299,6 +299,11 @@ static int soc_button_parse_btn_desc(struct device *dev,
 		info->name = "power";
 		info->event_code = KEY_POWER;
 		info->wakeup = true;
+	} else if (upage == 0x01 && usage == 0xc6) {
+		info->name = "airplane mode switch";
+		info->event_type = EV_SW;
+		info->event_code = SW_RFKILL_ALL;
+		info->active_low = false;
 	} else if (upage == 0x01 && usage == 0xca) {
 		info->name = "rotation lock switch";
 		info->event_type = EV_SW;
@@ -615,4 +620,5 @@ static struct platform_driver soc_button_driver = {
 };
 module_platform_driver(soc_button_driver);
 
+MODULE_DESCRIPTION("Windows-compatible SoC Button Array driver");
 MODULE_LICENSE("GPL");

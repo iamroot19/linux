@@ -35,11 +35,6 @@ struct hisi_ptt {
 	u32 pmu_type;
 };
 
-struct hisi_ptt_queue {
-	struct hisi_ptt *ptt;
-	struct auxtrace_buffer *buffer;
-};
-
 static enum hisi_ptt_pkt_type hisi_ptt_check_packet_type(unsigned char *buf)
 {
 	uint32_t head = *(uint32_t *)buf;
@@ -123,6 +118,7 @@ static int hisi_ptt_process_auxtrace_event(struct perf_session *session,
 	if (dump_trace)
 		hisi_ptt_dump_event(ptt, data, size);
 
+	free(data);
 	return 0;
 }
 

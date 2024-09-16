@@ -7,8 +7,6 @@
  * Authors:
  *  Nico Boehr <nrb@linux.ibm.com>
  */
-
-#define _GNU_SOURCE /* for program_invocation_short_name */
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,6 +16,7 @@
 #include "test_util.h"
 #include "kvm_util.h"
 #include "kselftest.h"
+#include "ucall_common.h"
 
 #define MAIN_PAGE_COUNT 512
 
@@ -94,11 +93,6 @@ static void guest_dirty_test_data(void)
 	);
 }
 
-static struct kvm_vm *create_vm(void)
-{
-	return ____vm_create(VM_MODE_DEFAULT);
-}
-
 static void create_main_memslot(struct kvm_vm *vm)
 {
 	int i;
@@ -157,7 +151,7 @@ static struct kvm_vm *create_vm_two_memslots(void)
 {
 	struct kvm_vm *vm;
 
-	vm = create_vm();
+	vm = vm_create_barebones();
 
 	create_memslots(vm);
 
@@ -276,7 +270,7 @@ static void assert_exit_was_hypercall(struct kvm_vcpu *vcpu)
 
 static void test_migration_mode(void)
 {
-	struct kvm_vm *vm = create_vm();
+	struct kvm_vm *vm = vm_create_barebones();
 	struct kvm_vcpu *vcpu;
 	u64 orig_psw;
 	int rc;
@@ -670,7 +664,7 @@ struct testdef {
  */
 static int machine_has_cmma(void)
 {
-	struct kvm_vm *vm = create_vm();
+	struct kvm_vm *vm = vm_create_barebones();
 	int r;
 
 	r = !__kvm_has_device_attr(vm->fd, KVM_S390_VM_MEM_CTRL, KVM_S390_VM_MEM_ENABLE_CMMA);

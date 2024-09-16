@@ -149,29 +149,25 @@ static inline bool is_visible_key(struct bch_hash_desc desc, subvol_inum inum, s
 		 desc.is_visible(inum, k));
 }
 
-static __always_inline int
-bch2_hash_lookup(struct btree_trans *trans,
+static __always_inline struct bkey_s_c
+bch2_hash_lookup_in_snapshot(struct btree_trans *trans,
 		 struct btree_iter *iter,
 		 const struct bch_hash_desc desc,
 		 const struct bch_hash_info *info,
 		 subvol_inum inum, const void *key,
-		 unsigned flags)
+		 enum btree_iter_update_trigger_flags flags,
+		 u32 snapshot)
 {
 	struct bkey_s_c k;
-	u32 snapshot;
 	int ret;
-
-	ret = bch2_subvolume_get_snapshot(trans, inum.subvol, &snapshot);
-	if (ret)
-		return ret;
 
 	for_each_btree_key_upto_norestart(trans, *iter, desc.btree_id,
 			   SPOS(inum.inum, desc.hash_key(info, key), snapshot),
 			   POS(inum.inum, U64_MAX),
-			   BTREE_ITER_SLOTS|flags, k, ret) {
+			   BTREE_ITER_slots|flags, k, ret) {
 		if (is_visible_key(desc, inum, k)) {
 			if (!desc.cmp_key(k, key))
-				return 0;
+				return k;
 		} else if (k.k->type == KEY_TYPE_hash_whiteout) {
 			;
 		} else {
@@ -181,7 +177,23 @@ bch2_hash_lookup(struct btree_trans *trans,
 	}
 	bch2_trans_iter_exit(trans, iter);
 
-	return ret ?: -BCH_ERR_ENOENT_str_hash_lookup;
+	return bkey_s_c_err(ret ?: -BCH_ERR_ENOENT_str_hash_lookup);
+}
+
+static __always_inline struct bkey_s_c
+bch2_hash_lookup(struct btree_trans *trans,
+		 struct btree_iter *iter,
+		 const struct bch_hash_desc desc,
+		 const struct bch_hash_info *info,
+		 subvol_inum inum, const void *key,
+		 enum btree_iter_update_trigger_flags flags)
+{
+	u32 snapshot;
+	int ret = bch2_subvolume_get_snapshot(trans, inum.subvol, &snapshot);
+	if (ret)
+		return bkey_s_c_err(ret);
+
+	return bch2_hash_lookup_in_snapshot(trans, iter, desc, info, inum, key, flags, snapshot);
 }
 
 static __always_inline int
@@ -202,7 +214,7 @@ bch2_hash_hole(struct btree_trans *trans,
 	for_each_btree_key_upto_norestart(trans, *iter, desc.btree_id,
 			   SPOS(inum.inum, desc.hash_key(info, key), snapshot),
 			   POS(inum.inum, U64_MAX),
-			   BTREE_ITER_SLOTS|BTREE_ITER_INTENT, k, ret)
+			   BTREE_ITER_slots|BTREE_ITER_intent, k, ret)
 		if (!is_visible_key(desc, inum, k))
 			return 0;
 	bch2_trans_iter_exit(trans, iter);
@@ -224,7 +236,7 @@ int bch2_hash_needs_whiteout(struct btree_trans *trans,
 
 	bch2_btree_iter_advance(&iter);
 
-	for_each_btree_key_continue_norestart(iter, BTREE_ITER_SLOTS, k, ret) {
+	for_each_btree_key_continue_norestart(iter, BTREE_ITER_slots, k, ret) {
 		if (k.k->type != desc.key_type &&
 		    k.k->type != KEY_TYPE_hash_whiteout)
 			break;
@@ -241,13 +253,12 @@ int bch2_hash_needs_whiteout(struct btree_trans *trans,
 }
 
 static __always_inline
-int bch2_hash_set_snapshot(struct btree_trans *trans,
+int bch2_hash_set_in_snapshot(struct btree_trans *trans,
 			   const struct bch_hash_desc desc,
 			   const struct bch_hash_info *info,
 			   subvol_inum inum, u32 snapshot,
 			   struct bkey_i *insert,
-			   int flags,
-			   int update_flags)
+			   enum btree_iter_update_trigger_flags flags)
 {
 	struct btree_iter iter, slot = { NULL };
 	struct bkey_s_c k;
@@ -259,7 +270,7 @@ int bch2_hash_set_snapshot(struct btree_trans *trans,
 				desc.hash_bkey(info, bkey_i_to_s_c(insert)),
 				snapshot),
 			   POS(insert->k.p.inode, U64_MAX),
-			   BTREE_ITER_SLOTS|BTREE_ITER_INTENT, k, ret) {
+			   BTREE_ITER_slots|BTREE_ITER_intent, k, ret) {
 		if (is_visible_key(desc, inum, k)) {
 			if (!desc.cmp_bkey(k, bkey_i_to_s_c(insert)))
 				goto found;
@@ -268,8 +279,7 @@ int bch2_hash_set_snapshot(struct btree_trans *trans,
 			continue;
 		}
 
-		if (!slot.path &&
-		    !(flags & BCH_HASH_SET_MUST_REPLACE))
+		if (!slot.path && !(flags & STR_HASH_must_replace))
 			bch2_trans_copy_iter(&slot, &iter);
 
 		if (k.k->type != KEY_TYPE_hash_whiteout)
@@ -287,16 +297,16 @@ found:
 	found = true;
 not_found:
 
-	if (!found && (flags & BCH_HASH_SET_MUST_REPLACE)) {
+	if (!found && (flags & STR_HASH_must_replace)) {
 		ret = -BCH_ERR_ENOENT_str_hash_set_must_replace;
-	} else if (found && (flags & BCH_HASH_SET_MUST_CREATE)) {
-		ret = -EEXIST;
+	} else if (found && (flags & STR_HASH_must_create)) {
+		ret = -BCH_ERR_EEXIST_str_hash_set;
 	} else {
 		if (!found && slot.path)
 			swap(iter, slot);
 
 		insert->k.p = iter.pos;
-		ret = bch2_trans_update(trans, &iter, insert, 0);
+		ret = bch2_trans_update(trans, &iter, insert, flags);
 	}
 
 	goto out;
@@ -307,19 +317,15 @@ int bch2_hash_set(struct btree_trans *trans,
 		  const struct bch_hash_desc desc,
 		  const struct bch_hash_info *info,
 		  subvol_inum inum,
-		  struct bkey_i *insert, int flags)
+		  struct bkey_i *insert,
+		  enum btree_iter_update_trigger_flags flags)
 {
-	u32 snapshot;
-	int ret;
-
-	ret = bch2_subvolume_get_snapshot(trans, inum.subvol, &snapshot);
-	if (ret)
-		return ret;
-
 	insert->k.p.inode = inum.inum;
 
-	return bch2_hash_set_snapshot(trans, desc, info, inum,
-				      snapshot, insert, flags, 0);
+	u32 snapshot;
+	return  bch2_subvolume_get_snapshot(trans, inum.subvol, &snapshot) ?:
+		bch2_hash_set_in_snapshot(trans, desc, info, inum,
+					  snapshot, insert, flags);
 }
 
 static __always_inline
@@ -327,7 +333,7 @@ int bch2_hash_delete_at(struct btree_trans *trans,
 			const struct bch_hash_desc desc,
 			const struct bch_hash_info *info,
 			struct btree_iter *iter,
-			unsigned update_flags)
+			enum btree_iter_update_trigger_flags flags)
 {
 	struct bkey_i *delete;
 	int ret;
@@ -345,7 +351,7 @@ int bch2_hash_delete_at(struct btree_trans *trans,
 	delete->k.p = iter->pos;
 	delete->k.type = ret ? KEY_TYPE_hash_whiteout : KEY_TYPE_deleted;
 
-	return bch2_trans_update(trans, iter, delete, update_flags);
+	return bch2_trans_update(trans, iter, delete, flags);
 }
 
 static __always_inline
@@ -355,14 +361,10 @@ int bch2_hash_delete(struct btree_trans *trans,
 		     subvol_inum inum, const void *key)
 {
 	struct btree_iter iter;
-	int ret;
-
-	ret = bch2_hash_lookup(trans, &iter, desc, info, inum, key,
-				BTREE_ITER_INTENT);
-	if (ret)
-		return ret;
-
-	ret = bch2_hash_delete_at(trans, desc, info, &iter, 0);
+	struct bkey_s_c k = bch2_hash_lookup(trans, &iter, desc, info, inum, key,
+					     BTREE_ITER_intent);
+	int ret = bkey_err(k) ?:
+		  bch2_hash_delete_at(trans, desc, info, &iter, 0);
 	bch2_trans_iter_exit(trans, &iter);
 	return ret;
 }

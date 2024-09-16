@@ -32,7 +32,7 @@
 
 #include <drm/drm_aperture.h>
 #include <drm/drm_drv.h>
-#include <drm/drm_fbdev_generic.h>
+#include <drm/drm_fbdev_ttm.h>
 #include <drm/drm_gem_ttm_helper.h>
 #include <drm/drm_ioctl.h>
 #include <drm/drm_vblank.h>
@@ -190,6 +190,8 @@ nouveau_cli_work_queue(struct nouveau_cli *cli, struct dma_fence *fence,
 static void
 nouveau_cli_fini(struct nouveau_cli *cli)
 {
+	struct nouveau_uvmm *uvmm = nouveau_cli_uvmm_locked(cli);
+
 	/* All our channels are dead now, which means all the fences they
 	 * own are signalled, and all callback functions have been called.
 	 *
@@ -199,8 +201,10 @@ nouveau_cli_fini(struct nouveau_cli *cli)
 	WARN_ON(!list_empty(&cli->worker));
 
 	usif_client_fini(cli);
-	nouveau_uvmm_fini(&cli->uvmm);
-	nouveau_sched_entity_fini(&cli->sched_entity);
+	if (cli->sched)
+		nouveau_sched_destroy(&cli->sched);
+	if (uvmm)
+		nouveau_uvmm_fini(uvmm);
 	nouveau_vmm_fini(&cli->svm);
 	nouveau_vmm_fini(&cli->vmm);
 	nvif_mmu_dtor(&cli->mmu);
@@ -307,8 +311,17 @@ nouveau_cli_init(struct nouveau_drm *drm, const char *sname,
 
 	cli->mem = &mems[ret];
 
-	ret = nouveau_sched_entity_init(&cli->sched_entity, &drm->sched,
-					drm->sched_wq);
+	/* Don't pass in the (shared) sched_wq in order to let
+	 * nouveau_sched_create() create a dedicated one for VM_BIND jobs.
+	 *
+	 * This is required to ensure that for VM_BIND jobs free_job() work and
+	 * run_job() work can always run concurrently and hence, free_job() work
+	 * can never stall run_job() work. For EXEC jobs we don't have this
+	 * requirement, since EXEC job's free_job() does not require to take any
+	 * locks which indirectly or directly are held for allocations
+	 * elsewhere.
+	 */
+	ret = nouveau_sched_create(&cli->sched, drm, NULL, 1);
 	if (ret)
 		goto done;
 
@@ -579,13 +592,16 @@ nouveau_drm_device_init(struct drm_device *dev)
 	nvif_parent_ctor(&nouveau_parent, &drm->parent);
 	drm->master.base.object.parent = &drm->parent;
 
-	ret = nouveau_sched_init(drm);
-	if (ret)
+	drm->sched_wq = alloc_workqueue("nouveau_sched_wq_shared", 0,
+					WQ_MAX_ACTIVE);
+	if (!drm->sched_wq) {
+		ret = -ENOMEM;
 		goto fail_alloc;
+	}
 
 	ret = nouveau_cli_init(drm, "DRM-master", &drm->master);
 	if (ret)
-		goto fail_sched;
+		goto fail_wq;
 
 	ret = nouveau_cli_init(drm, "DRM", &drm->client);
 	if (ret)
@@ -655,8 +671,8 @@ fail_ttm:
 	nouveau_cli_fini(&drm->client);
 fail_master:
 	nouveau_cli_fini(&drm->master);
-fail_sched:
-	nouveau_sched_fini(drm);
+fail_wq:
+	destroy_workqueue(drm->sched_wq);
 fail_alloc:
 	nvif_parent_dtor(&drm->parent);
 	kfree(drm);
@@ -708,10 +724,9 @@ nouveau_drm_device_fini(struct drm_device *dev)
 	}
 	mutex_unlock(&drm->clients_lock);
 
-	nouveau_sched_fini(drm);
-
 	nouveau_cli_fini(&drm->client);
 	nouveau_cli_fini(&drm->master);
+	destroy_workqueue(drm->sched_wq);
 	nvif_parent_dtor(&drm->parent);
 	mutex_destroy(&drm->clients_lock);
 	kfree(drm);
@@ -831,9 +846,9 @@ static int nouveau_drm_probe(struct pci_dev *pdev,
 		goto fail_drm_dev_init;
 
 	if (nouveau_drm(drm_dev)->client.device.info.ram_size <= 32 * 1024 * 1024)
-		drm_fbdev_generic_setup(drm_dev, 8);
+		drm_fbdev_ttm_setup(drm_dev, 8);
 	else
-		drm_fbdev_generic_setup(drm_dev, 32);
+		drm_fbdev_ttm_setup(drm_dev, 32);
 
 	quirk_broken_nv_runpm(pdev);
 	return 0;

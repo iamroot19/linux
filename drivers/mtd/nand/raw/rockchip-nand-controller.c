@@ -98,7 +98,7 @@ enum nfc_type {
  * @high: ECC count high bit index at register.
  * @high_mask: mask bit
  */
-struct ecc_cnt_status {
+struct rk_ecc_cnt_status {
 	u8 err_flag_bit;
 	u8 low;
 	u8 low_mask;
@@ -108,6 +108,7 @@ struct ecc_cnt_status {
 };
 
 /**
+ * struct nfc_cfg: Rockchip NAND controller configuration
  * @type: NFC version
  * @ecc_strengths: ECC strengths
  * @ecc_cfgs: ECC config values
@@ -144,8 +145,8 @@ struct nfc_cfg {
 	u32 int_st_off;
 	u32 oob0_off;
 	u32 oob1_off;
-	struct ecc_cnt_status ecc0;
-	struct ecc_cnt_status ecc1;
+	struct rk_ecc_cnt_status ecc0;
+	struct rk_ecc_cnt_status ecc1;
 };
 
 struct rk_nfc_nand_chip {
@@ -419,12 +420,12 @@ static int rk_nfc_setup_interface(struct nand_chip *chip, int target,
 	u32 rate, tc2rw, trwpw, trw2c;
 	u32 temp;
 
-	if (target < 0)
-		return 0;
-
 	timings = nand_get_sdr_timings(conf);
 	if (IS_ERR(timings))
 		return -EOPNOTSUPP;
+
+	if (target < 0)
+		return 0;
 
 	if (IS_ERR(nfc->nfc_clk))
 		rate = clk_get_rate(nfc->ahb_clk);

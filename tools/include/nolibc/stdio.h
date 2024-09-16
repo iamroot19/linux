@@ -212,7 +212,7 @@ char *fgets(char *s, int size, FILE *stream)
  *  - %s
  *  - unknown modifiers are ignored.
  */
-static __attribute__((unused))
+static __attribute__((unused, format(printf, 2, 0)))
 int vfprintf(FILE *stream, const char *fmt, va_list args)
 {
 	char escape, lpref, c;
@@ -318,7 +318,7 @@ int vfprintf(FILE *stream, const char *fmt, va_list args)
 	return written;
 }
 
-static __attribute__((unused))
+static __attribute__((unused, format(printf, 1, 0)))
 int vprintf(const char *fmt, va_list args)
 {
 	return vfprintf(stdout, fmt, args);
@@ -374,6 +374,16 @@ int setvbuf(FILE *stream __attribute__((unused)),
 	}
 
 	return 0;
+}
+
+static __attribute__((unused))
+const char *strerror(int errno)
+{
+	static char buf[18] = "errno=";
+
+	i64toa_r(errno, &buf[6]);
+
+	return buf;
 }
 
 /* make sure to include all global symbols */

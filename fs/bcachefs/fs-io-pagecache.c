@@ -214,7 +214,7 @@ retry:
 
 	for_each_btree_key_norestart(trans, iter, BTREE_ID_extents,
 			   SPOS(inum.inum, offset, snapshot),
-			   BTREE_ITER_SLOTS, k, ret) {
+			   BTREE_ITER_slots, k, ret) {
 		unsigned nr_ptrs = bch2_bkey_nr_ptrs_fully_allocated(k);
 		unsigned state = bkey_to_sector_state(k);
 
@@ -309,39 +309,49 @@ void bch2_mark_pagecache_unallocated(struct bch_inode_info *inode,
 	}
 }
 
-void bch2_mark_pagecache_reserved(struct bch_inode_info *inode,
-				  u64 start, u64 end)
+int bch2_mark_pagecache_reserved(struct bch_inode_info *inode,
+				 u64 *start, u64 end,
+				 bool nonblocking)
 {
 	struct bch_fs *c = inode->v.i_sb->s_fs_info;
-	pgoff_t index = start >> PAGE_SECTORS_SHIFT;
+	pgoff_t index = *start >> PAGE_SECTORS_SHIFT;
 	pgoff_t end_index = (end - 1) >> PAGE_SECTORS_SHIFT;
 	struct folio_batch fbatch;
 	s64 i_sectors_delta = 0;
-	unsigned i, j;
+	int ret = 0;
 
-	if (end <= start)
-		return;
+	if (end <= *start)
+		return 0;
 
 	folio_batch_init(&fbatch);
 
 	while (filemap_get_folios(inode->v.i_mapping,
 				  &index, end_index, &fbatch)) {
-		for (i = 0; i < folio_batch_count(&fbatch); i++) {
+		for (unsigned i = 0; i < folio_batch_count(&fbatch); i++) {
 			struct folio *folio = fbatch.folios[i];
+
+			if (!nonblocking)
+				folio_lock(folio);
+			else if (!folio_trylock(folio)) {
+				folio_batch_release(&fbatch);
+				ret = -EAGAIN;
+				break;
+			}
+
 			u64 folio_start = folio_sector(folio);
 			u64 folio_end = folio_end_sector(folio);
-			unsigned folio_offset = max(start, folio_start) - folio_start;
-			unsigned folio_len = min(end, folio_end) - folio_offset - folio_start;
-			struct bch_folio *s;
 
 			BUG_ON(end <= folio_start);
 
-			folio_lock(folio);
-			s = bch2_folio(folio);
+			*start = min(end, folio_end);
 
+			struct bch_folio *s = bch2_folio(folio);
 			if (s) {
+				unsigned folio_offset = max(*start, folio_start) - folio_start;
+				unsigned folio_len = min(end, folio_end) - folio_offset - folio_start;
+
 				spin_lock(&s->lock);
-				for (j = folio_offset; j < folio_offset + folio_len; j++) {
+				for (unsigned j = folio_offset; j < folio_offset + folio_len; j++) {
 					i_sectors_delta -= s->s[j].state == SECTOR_dirty;
 					bch2_folio_sector_set(folio, s, j,
 						folio_sector_reserve(s->s[j].state));
@@ -356,6 +366,7 @@ void bch2_mark_pagecache_reserved(struct bch_inode_info *inode,
 	}
 
 	bch2_i_sectors_acct(c, inode, NULL, i_sectors_delta);
+	return ret;
 }
 
 static inline unsigned sectors_to_reserve(struct bch_folio_sector *s,
@@ -412,7 +423,7 @@ int bch2_folio_reservation_get(struct bch_fs *c,
 			struct bch_inode_info *inode,
 			struct folio *folio,
 			struct bch2_folio_reservation *res,
-			unsigned offset, unsigned len)
+			size_t offset, size_t len)
 {
 	struct bch_folio *s = bch2_folio_create(folio, 0);
 	unsigned i, disk_sectors = 0, quota_sectors = 0;
@@ -426,8 +437,7 @@ int bch2_folio_reservation_get(struct bch_fs *c,
 	for (i = round_down(offset, block_bytes(c)) >> 9;
 	     i < round_up(offset + len, block_bytes(c)) >> 9;
 	     i++) {
-		disk_sectors += sectors_to_reserve(&s->s[i],
-						res->disk.nr_replicas);
+		disk_sectors += sectors_to_reserve(&s->s[i], res->disk.nr_replicas);
 		quota_sectors += s->s[i].state == SECTOR_unallocated;
 	}
 
@@ -438,12 +448,9 @@ int bch2_folio_reservation_get(struct bch_fs *c,
 	}
 
 	if (quota_sectors) {
-		ret = bch2_quota_reservation_add(c, inode, &res->quota,
-						 quota_sectors, true);
+		ret = bch2_quota_reservation_add(c, inode, &res->quota, quota_sectors, true);
 		if (unlikely(ret)) {
-			struct disk_reservation tmp = {
-				.sectors = disk_sectors
-			};
+			struct disk_reservation tmp = { .sectors = disk_sectors };
 
 			bch2_disk_reservation_put(c, &tmp);
 			res->disk.sectors -= disk_sectors;
@@ -452,6 +459,31 @@ int bch2_folio_reservation_get(struct bch_fs *c,
 	}
 
 	return 0;
+}
+
+ssize_t bch2_folio_reservation_get_partial(struct bch_fs *c,
+			struct bch_inode_info *inode,
+			struct folio *folio,
+			struct bch2_folio_reservation *res,
+			size_t offset, size_t len)
+{
+	size_t l, reserved = 0;
+	int ret;
+
+	while ((l = len - reserved)) {
+		while ((ret = bch2_folio_reservation_get(c, inode, folio, res, offset, l))) {
+			if ((offset & (block_bytes(c) - 1)) + l <= block_bytes(c))
+				return reserved ?: ret;
+
+			len = reserved + l;
+			l /= 2;
+		}
+
+		offset += l;
+		reserved += l;
+	}
+
+	return reserved;
 }
 
 static void bch2_clear_folio_bits(struct folio *folio)

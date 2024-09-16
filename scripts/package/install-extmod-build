@@ -1,12 +1,9 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 
-set -e
+set -eu
 
 destdir=${1}
-
-test -n "${srctree}"
-test -n "${SRCARCH}"
 
 is_enabled() {
 	grep -q "^$1=y" include/config/auto.conf
@@ -20,7 +17,7 @@ mkdir -p "${destdir}"
 	find "arch/${SRCARCH}" -maxdepth 1 -name 'Makefile*'
 	find include scripts -type f -o -type l
 	find "arch/${SRCARCH}" -name Kbuild.platforms -o -name Platform
-	find "arch/${SRCARCH}" -name include -o -name scripts -type d
+	find "arch/${SRCARCH}" -name include -type d
 ) | tar -c -f - -C "${srctree}" -T - | tar -xf - -C "${destdir}"
 
 {

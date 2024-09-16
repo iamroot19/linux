@@ -54,6 +54,7 @@
 #include <rdma/ib_user_verbs.h>
 #include <rdma/ib_umem.h>
 #include <rdma/ib_addr.h>
+#include <linux/hashtable.h>
 
 #include "bnxt_ulp.h"
 #include "roce_hsi.h"
@@ -107,9 +108,14 @@ static void bnxt_re_set_db_offset(struct bnxt_re_dev *rdev)
 		dev_info(rdev_to_dev(rdev),
 			 "Couldn't get DB bar size, Low latency framework is disabled\n");
 	/* set register offsets for both UC and WC */
-	res->dpi_tbl.ucreg.offset = res->is_vf ? BNXT_QPLIB_DBR_VF_DB_OFFSET :
-						 BNXT_QPLIB_DBR_PF_DB_OFFSET;
-	res->dpi_tbl.wcreg.offset = res->dpi_tbl.ucreg.offset;
+	if (bnxt_qplib_is_chip_gen_p7(cctx)) {
+		res->dpi_tbl.ucreg.offset = offset;
+		res->dpi_tbl.wcreg.offset = en_dev->l2_db_size;
+	} else {
+		res->dpi_tbl.ucreg.offset = res->is_vf ? BNXT_QPLIB_DBR_VF_DB_OFFSET :
+							 BNXT_QPLIB_DBR_PF_DB_OFFSET;
+		res->dpi_tbl.wcreg.offset = res->dpi_tbl.ucreg.offset;
+	}
 
 	/* If WC mapping is disabled by L2 driver then en_dev->l2_db_size
 	 * is equal to the DB-Bar actual size. This indicates that L2
@@ -128,11 +134,13 @@ static void bnxt_re_set_drv_mode(struct bnxt_re_dev *rdev, u8 mode)
 	struct bnxt_qplib_chip_ctx *cctx;
 
 	cctx = rdev->chip_ctx;
-	cctx->modes.wqe_mode = bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx) ?
+	cctx->modes.wqe_mode = bnxt_qplib_is_chip_gen_p5_p7(rdev->chip_ctx) ?
 			       mode : BNXT_QPLIB_WQE_MODE_STATIC;
 	if (bnxt_re_hwrm_qcaps(rdev))
 		dev_err(rdev_to_dev(rdev),
 			"Failed to query hwrm qcaps\n");
+	if (bnxt_qplib_is_chip_gen_p7(rdev->chip_ctx))
+		cctx->modes.toggle_bits |= BNXT_QPLIB_CQ_TOGGLE_BIT;
 }
 
 static void bnxt_re_destroy_chip_ctx(struct bnxt_re_dev *rdev)
@@ -215,7 +223,7 @@ static void bnxt_re_limit_pf_res(struct bnxt_re_dev *rdev)
 	ctx->srqc_count = min_t(u32, BNXT_RE_MAX_SRQC_COUNT,
 				attr->max_srq);
 	ctx->cq_count = min_t(u32, BNXT_RE_MAX_CQ_COUNT, attr->max_cq);
-	if (!bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx))
+	if (!bnxt_qplib_is_chip_gen_p5_p7(rdev->chip_ctx))
 		for (i = 0; i < MAX_TQM_ALLOC_REQ; i++)
 			rdev->qplib_ctx.tqm_ctx.qcount[i] =
 			rdev->dev_attr.tqm_alloc_reqs[i];
@@ -264,7 +272,7 @@ static void bnxt_re_set_resource_limits(struct bnxt_re_dev *rdev)
 	memset(&rdev->qplib_ctx.vf_res, 0, sizeof(struct bnxt_qplib_vf_res));
 	bnxt_re_limit_pf_res(rdev);
 
-	num_vfs =  bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx) ?
+	num_vfs =  bnxt_qplib_is_chip_gen_p5_p7(rdev->chip_ctx) ?
 			BNXT_RE_GEN_P5_MAX_VF : rdev->num_vfs;
 	if (num_vfs)
 		bnxt_re_limit_vf_res(&rdev->qplib_ctx, num_vfs);
@@ -272,11 +280,8 @@ static void bnxt_re_set_resource_limits(struct bnxt_re_dev *rdev)
 
 static void bnxt_re_vf_res_config(struct bnxt_re_dev *rdev)
 {
-
-	if (test_bit(BNXT_RE_FLAG_ERR_DEVICE_DETACHED, &rdev->flags))
-		return;
 	rdev->num_vfs = pci_sriov_get_totalvfs(rdev->en_dev->pdev);
-	if (!bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx)) {
+	if (!bnxt_qplib_is_chip_gen_p5_p7(rdev->chip_ctx)) {
 		bnxt_re_set_resource_limits(rdev);
 		bnxt_qplib_set_func_resources(&rdev->qplib_res, &rdev->rcfw,
 					      &rdev->qplib_ctx);
@@ -418,6 +423,7 @@ int bnxt_re_hwrm_qcaps(struct bnxt_re_dev *rdev)
 	struct hwrm_func_qcaps_input req = {};
 	struct bnxt_qplib_chip_ctx *cctx;
 	struct bnxt_fw_msg fw_msg = {};
+	u32 flags_ext2;
 	int rc;
 
 	cctx = rdev->chip_ctx;
@@ -431,14 +437,15 @@ int bnxt_re_hwrm_qcaps(struct bnxt_re_dev *rdev)
 		return rc;
 	cctx->modes.db_push = le32_to_cpu(resp.flags) & FUNC_QCAPS_RESP_FLAGS_WCB_PUSH_MODE;
 
-	cctx->modes.dbr_pacing =
-		le32_to_cpu(resp.flags_ext2) &
-		FUNC_QCAPS_RESP_FLAGS_EXT2_DBR_PACING_EXT_SUPPORTED;
+	flags_ext2 = le32_to_cpu(resp.flags_ext2);
+	cctx->modes.dbr_pacing = flags_ext2 & FUNC_QCAPS_RESP_FLAGS_EXT2_DBR_PACING_EXT_SUPPORTED ||
+				 flags_ext2 & FUNC_QCAPS_RESP_FLAGS_EXT2_DBR_PACING_V0_SUPPORTED;
 	return 0;
 }
 
 static int bnxt_re_hwrm_dbr_pacing_qcfg(struct bnxt_re_dev *rdev)
 {
+	struct bnxt_qplib_db_pacing_data *pacing_data = rdev->qplib_res.pacing_data;
 	struct hwrm_func_dbr_pacing_qcfg_output resp = {};
 	struct hwrm_func_dbr_pacing_qcfg_input req = {};
 	struct bnxt_en_dev *en_dev = rdev->en_dev;
@@ -460,6 +467,13 @@ static int bnxt_re_hwrm_dbr_pacing_qcfg(struct bnxt_re_dev *rdev)
 		cctx->dbr_stat_db_fifo =
 			le32_to_cpu(resp.dbr_stat_db_fifo_reg) &
 			~FUNC_DBR_PACING_QCFG_RESP_DBR_STAT_DB_FIFO_REG_ADDR_SPACE_MASK;
+
+	pacing_data->fifo_max_depth = le32_to_cpu(resp.dbr_stat_db_max_fifo_depth);
+	if (!pacing_data->fifo_max_depth)
+		pacing_data->fifo_max_depth = BNXT_RE_MAX_FIFO_DEPTH(cctx);
+	pacing_data->fifo_room_mask = le32_to_cpu(resp.dbr_stat_db_fifo_reg_fifo_room_mask);
+	pacing_data->fifo_room_shift = resp.dbr_stat_db_fifo_reg_fifo_room_shift;
+
 	return 0;
 }
 
@@ -474,23 +488,45 @@ static void bnxt_re_set_default_pacing_data(struct bnxt_re_dev *rdev)
 		pacing_data->pacing_th * BNXT_RE_PACING_ALARM_TH_MULTIPLE;
 }
 
+static u32 __get_fifo_occupancy(struct bnxt_re_dev *rdev)
+{
+	struct bnxt_qplib_db_pacing_data *pacing_data = rdev->qplib_res.pacing_data;
+	u32 read_val, fifo_occup;
+
+	read_val = readl(rdev->en_dev->bar0 + rdev->pacing.dbr_db_fifo_reg_off);
+	fifo_occup = pacing_data->fifo_max_depth -
+		     ((read_val & pacing_data->fifo_room_mask) >>
+		      pacing_data->fifo_room_shift);
+	return fifo_occup;
+}
+
+static bool is_dbr_fifo_full(struct bnxt_re_dev *rdev)
+{
+	u32 max_occup, fifo_occup;
+
+	fifo_occup = __get_fifo_occupancy(rdev);
+	max_occup = BNXT_RE_MAX_FIFO_DEPTH(rdev->chip_ctx) - 1;
+	if (fifo_occup == max_occup)
+		return true;
+
+	return false;
+}
+
 static void __wait_for_fifo_occupancy_below_th(struct bnxt_re_dev *rdev)
 {
-	u32 read_val, fifo_occup;
+	struct bnxt_qplib_db_pacing_data *pacing_data = rdev->qplib_res.pacing_data;
+	u32 fifo_occup;
 
 	/* loop shouldn't run infintely as the occupancy usually goes
 	 * below pacing algo threshold as soon as pacing kicks in.
 	 */
 	while (1) {
-		read_val = readl(rdev->en_dev->bar0 + rdev->pacing.dbr_db_fifo_reg_off);
-		fifo_occup = BNXT_RE_MAX_FIFO_DEPTH -
-			((read_val & BNXT_RE_DB_FIFO_ROOM_MASK) >>
-			 BNXT_RE_DB_FIFO_ROOM_SHIFT);
+		fifo_occup = __get_fifo_occupancy(rdev);
 		/* Fifo occupancy cannot be greater the MAX FIFO depth */
-		if (fifo_occup > BNXT_RE_MAX_FIFO_DEPTH)
+		if (fifo_occup > pacing_data->fifo_max_depth)
 			break;
 
-		if (fifo_occup < rdev->qplib_res.pacing_data->pacing_th)
+		if (fifo_occup < pacing_data->pacing_th)
 			break;
 	}
 }
@@ -541,16 +577,13 @@ static void bnxt_re_pacing_timer_exp(struct work_struct *work)
 	struct bnxt_re_dev *rdev = container_of(work, struct bnxt_re_dev,
 			dbq_pacing_work.work);
 	struct bnxt_qplib_db_pacing_data *pacing_data;
-	u32 read_val, fifo_occup;
+	u32 fifo_occup;
 
 	if (!mutex_trylock(&rdev->pacing.dbq_lock))
 		return;
 
 	pacing_data = rdev->qplib_res.pacing_data;
-	read_val = readl(rdev->en_dev->bar0 + rdev->pacing.dbr_db_fifo_reg_off);
-	fifo_occup = BNXT_RE_MAX_FIFO_DEPTH -
-		((read_val & BNXT_RE_DB_FIFO_ROOM_MASK) >>
-		 BNXT_RE_DB_FIFO_ROOM_SHIFT);
+	fifo_occup = __get_fifo_occupancy(rdev);
 
 	if (fifo_occup > pacing_data->pacing_th)
 		goto restart_timer;
@@ -589,7 +622,7 @@ void bnxt_re_pacing_alert(struct bnxt_re_dev *rdev)
 	 * Increase the alarm_th to max so that other user lib instances do not
 	 * keep alerting the driver.
 	 */
-	pacing_data->alarm_th = BNXT_RE_MAX_FIFO_DEPTH;
+	pacing_data->alarm_th = pacing_data->fifo_max_depth;
 	pacing_data->do_pacing = BNXT_RE_MAX_DBR_DO_PACING;
 	cancel_work_sync(&rdev->dbq_fifo_check_work);
 	schedule_work(&rdev->dbq_fifo_check_work);
@@ -598,9 +631,6 @@ void bnxt_re_pacing_alert(struct bnxt_re_dev *rdev)
 
 static int bnxt_re_initialize_dbr_pacing(struct bnxt_re_dev *rdev)
 {
-	if (bnxt_re_hwrm_dbr_pacing_qcfg(rdev))
-		return -EIO;
-
 	/* Allocate a page for app use */
 	rdev->pacing.dbr_page = (void *)__get_free_page(GFP_KERNEL);
 	if (!rdev->pacing.dbr_page)
@@ -608,6 +638,12 @@ static int bnxt_re_initialize_dbr_pacing(struct bnxt_re_dev *rdev)
 
 	memset((u8 *)rdev->pacing.dbr_page, 0, PAGE_SIZE);
 	rdev->qplib_res.pacing_data = (struct bnxt_qplib_db_pacing_data *)rdev->pacing.dbr_page;
+
+	if (bnxt_re_hwrm_dbr_pacing_qcfg(rdev)) {
+		free_page((u64)rdev->pacing.dbr_page);
+		rdev->pacing.dbr_page = NULL;
+		return -EIO;
+	}
 
 	/* MAP HW window 2 for reading db fifo depth */
 	writel(rdev->chip_ctx->dbr_stat_db_fifo & BNXT_GRC_BASE_MASK,
@@ -618,13 +654,16 @@ static int bnxt_re_initialize_dbr_pacing(struct bnxt_re_dev *rdev)
 	rdev->pacing.dbr_bar_addr =
 		pci_resource_start(rdev->qplib_res.pdev, 0) + rdev->pacing.dbr_db_fifo_reg_off;
 
+	if (is_dbr_fifo_full(rdev)) {
+		free_page((u64)rdev->pacing.dbr_page);
+		rdev->pacing.dbr_page = NULL;
+		return -EIO;
+	}
+
 	rdev->pacing.pacing_algo_th = BNXT_RE_PACING_ALGO_THRESHOLD;
 	rdev->pacing.dbq_pacing_time = BNXT_RE_DBR_PACING_TIME;
 	rdev->pacing.dbr_def_do_pacing = BNXT_RE_DBR_DO_PACING_NO_CONGESTION;
 	rdev->pacing.do_pacing_save = rdev->pacing.dbr_def_do_pacing;
-	rdev->qplib_res.pacing_data->fifo_max_depth = BNXT_RE_MAX_FIFO_DEPTH;
-	rdev->qplib_res.pacing_data->fifo_room_mask = BNXT_RE_DB_FIFO_ROOM_MASK;
-	rdev->qplib_res.pacing_data->fifo_room_shift = BNXT_RE_DB_FIFO_ROOM_SHIFT;
 	rdev->qplib_res.pacing_data->grc_reg_offset = rdev->pacing.dbr_db_fifo_reg_off;
 	bnxt_re_set_default_pacing_data(rdev);
 	/* Initialize worker for DBR Pacing */
@@ -1203,23 +1242,17 @@ static int bnxt_re_cqn_handler(struct bnxt_qplib_nq *nq,
 {
 	struct bnxt_re_cq *cq = container_of(handle, struct bnxt_re_cq,
 					     qplib_cq);
+	u32 *cq_ptr;
 
 	if (cq->ib_cq.comp_handler) {
-		/* Lock comp_handler? */
+		if (cq->uctx_cq_page) {
+			cq_ptr = (u32 *)cq->uctx_cq_page;
+			*cq_ptr = cq->qplib_cq.toggle;
+		}
 		(*cq->ib_cq.comp_handler)(&cq->ib_cq, cq->ib_cq.cq_context);
 	}
 
 	return 0;
-}
-
-#define BNXT_RE_GEN_P5_PF_NQ_DB		0x10000
-#define BNXT_RE_GEN_P5_VF_NQ_DB		0x4000
-static u32 bnxt_re_get_nqdb_offset(struct bnxt_re_dev *rdev, u16 indx)
-{
-	return bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx) ?
-		(rdev->is_virtfn ? BNXT_RE_GEN_P5_VF_NQ_DB :
-				   BNXT_RE_GEN_P5_PF_NQ_DB) :
-				   rdev->en_dev->msix_entries[indx].db_offset;
 }
 
 static void bnxt_re_cleanup_res(struct bnxt_re_dev *rdev)
@@ -1242,7 +1275,7 @@ static int bnxt_re_init_res(struct bnxt_re_dev *rdev)
 	bnxt_qplib_init_res(&rdev->qplib_res);
 
 	for (i = 1; i < rdev->num_msix ; i++) {
-		db_offt = bnxt_re_get_nqdb_offset(rdev, i);
+		db_offt = rdev->en_dev->msix_entries[i].db_offset;
 		rc = bnxt_qplib_enable_nq(rdev->en_dev->pdev, &rdev->nq[i - 1],
 					  i - 1, rdev->en_dev->msix_entries[i].vector,
 					  db_offt, &bnxt_re_cqn_handler,
@@ -1653,7 +1686,7 @@ static int bnxt_re_dev_init(struct bnxt_re_dev *rdev, u8 wqe_mode)
 		ibdev_err(&rdev->ibdev, "Failed to allocate CREQ: %#x\n", rc);
 		goto free_rcfw;
 	}
-	db_offt = bnxt_re_get_nqdb_offset(rdev, BNXT_RE_AEQ_IDX);
+	db_offt = rdev->en_dev->msix_entries[BNXT_RE_AEQ_IDX].db_offset;
 	vid = rdev->en_dev->msix_entries[BNXT_RE_AEQ_IDX].vector;
 	rc = bnxt_qplib_enable_rcfw_channel(&rdev->rcfw,
 					    vid, db_offt,
@@ -1681,7 +1714,7 @@ static int bnxt_re_dev_init(struct bnxt_re_dev *rdev, u8 wqe_mode)
 	bnxt_re_set_resource_limits(rdev);
 
 	rc = bnxt_qplib_alloc_ctx(&rdev->qplib_res, &rdev->qplib_ctx, 0,
-				  bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx));
+				  bnxt_qplib_is_chip_gen_p5_p7(rdev->chip_ctx));
 	if (rc) {
 		ibdev_err(&rdev->ibdev,
 			  "Failed to allocate QPLIB context: %#x\n", rc);
@@ -1737,6 +1770,7 @@ static int bnxt_re_dev_init(struct bnxt_re_dev *rdev, u8 wqe_mode)
 		 */
 		bnxt_re_vf_res_config(rdev);
 	}
+	hash_init(rdev->cq_hash);
 
 	return 0;
 free_sctx:
@@ -1804,7 +1838,7 @@ static void bnxt_re_setup_cc(struct bnxt_re_dev *rdev, bool enable)
 		return;
 
 	/* Currently enabling only for GenP5 adapters */
-	if (!bnxt_qplib_is_chip_gen_p5(rdev->chip_ctx))
+	if (!bnxt_qplib_is_chip_gen_p5_p7(rdev->chip_ctx))
 		return;
 
 	if (enable) {

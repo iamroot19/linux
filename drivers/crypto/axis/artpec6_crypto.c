@@ -1535,7 +1535,8 @@ static int artpec6_crypto_aes_ecb_init(struct crypto_skcipher *tfm)
 {
 	struct artpec6_cryptotfm_context *ctx = crypto_skcipher_ctx(tfm);
 
-	tfm->reqsize = sizeof(struct artpec6_crypto_request_context);
+	crypto_skcipher_set_reqsize(tfm,
+				    sizeof(struct artpec6_crypto_request_context));
 	ctx->crypto_type = ARTPEC6_CRYPTO_CIPHER_AES_ECB;
 
 	return 0;
@@ -1551,7 +1552,8 @@ static int artpec6_crypto_aes_ctr_init(struct crypto_skcipher *tfm)
 	if (IS_ERR(ctx->fallback))
 		return PTR_ERR(ctx->fallback);
 
-	tfm->reqsize = sizeof(struct artpec6_crypto_request_context);
+	crypto_skcipher_set_reqsize(tfm,
+				    sizeof(struct artpec6_crypto_request_context));
 	ctx->crypto_type = ARTPEC6_CRYPTO_CIPHER_AES_CTR;
 
 	return 0;
@@ -1561,7 +1563,8 @@ static int artpec6_crypto_aes_cbc_init(struct crypto_skcipher *tfm)
 {
 	struct artpec6_cryptotfm_context *ctx = crypto_skcipher_ctx(tfm);
 
-	tfm->reqsize = sizeof(struct artpec6_crypto_request_context);
+	crypto_skcipher_set_reqsize(tfm,
+				    sizeof(struct artpec6_crypto_request_context));
 	ctx->crypto_type = ARTPEC6_CRYPTO_CIPHER_AES_CBC;
 
 	return 0;
@@ -1571,7 +1574,8 @@ static int artpec6_crypto_aes_xts_init(struct crypto_skcipher *tfm)
 {
 	struct artpec6_cryptotfm_context *ctx = crypto_skcipher_ctx(tfm);
 
-	tfm->reqsize = sizeof(struct artpec6_crypto_request_context);
+	crypto_skcipher_set_reqsize(tfm,
+				    sizeof(struct artpec6_crypto_request_context));
 	ctx->crypto_type = ARTPEC6_CRYPTO_CIPHER_AES_XTS;
 
 	return 0;
@@ -2806,13 +2810,6 @@ static struct aead_alg aead_algos[] = {
 };
 
 #ifdef CONFIG_DEBUG_FS
-
-struct dbgfs_u32 {
-	char *name;
-	mode_t mode;
-	u32 *flag;
-	char *desc;
-};
 
 static struct dentry *dbgfs_root;
 

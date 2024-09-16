@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
 /*
- * Copyright 2018-2023 Amazon.com, Inc. or its affiliates. All rights reserved.
+ * Copyright 2018-2024 Amazon.com, Inc. or its affiliates. All rights reserved.
  */
 
 #ifndef _EFA_COM_CMD_H_
@@ -27,6 +27,7 @@ struct efa_com_create_qp_params {
 	u16 pd;
 	u16 uarn;
 	u8 qp_type;
+	u8 unsolicited_write_recv : 1;
 };
 
 struct efa_com_create_qp_result {
@@ -199,6 +200,15 @@ struct efa_com_reg_mr_params {
 	u8 indirect;
 };
 
+struct efa_com_mr_interconnect_info {
+	u16 recv_ic_id;
+	u16 rdma_read_ic_id;
+	u16 rdma_recv_ic_id;
+	u8 recv_ic_id_valid : 1;
+	u8 rdma_read_ic_id_valid : 1;
+	u8 rdma_recv_ic_id_valid : 1;
+};
+
 struct efa_com_reg_mr_result {
 	/*
 	 * To be used in conjunction with local buffers references in SQ and
@@ -210,6 +220,7 @@ struct efa_com_reg_mr_result {
 	 * accessed memory region
 	 */
 	u32 r_key;
+	struct efa_com_mr_interconnect_info ic_info;
 };
 
 struct efa_com_dereg_mr_params {
