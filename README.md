@@ -34,6 +34,10 @@ sudo qemu-system-aarch64 -M virt -smp cpus=4 -cpu cortex-a57 \
 
 - 첫 모임: 2022년 5월 7일 (zoom online)
 
+### 123주차
+- 2024.09.14  Zoom 온라인 (4명 참석)
+- 코드 : pcpu_schedule_balance_work()
+
 ### 95주차
 - 2024.03.02 Zoom 온라인 (6명 참석)
 - 코드 : kmem_cache_free()
